@@ -14,7 +14,7 @@
 <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4" style="background:radial-gradient(ellipse at top,#332714 0,#101014 52%)">
  <div class="panel w-full max-w-md p-7 sm:p-9">
   <div class="text-center mb-7"><div class="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-3xl" style="background:#2c2414;border:1px solid #8a7027">🌙</div><h1 class="text-2xl font-extrabold">골드문 <span class="gold">Gold Moon</span></h1><p class="muted text-sm mt-2">조직 통합 관리 패널</p></div>
-  <form id="loginForm" class="space-y-4"><div><label class="label">관리자 아이디</label><input class="field" id="loginUser" autocomplete="username" placeholder="아이디 입력" required></div><div><label class="label">비밀번호</label><input class="field" id="loginPass" type="password" autocomplete="current-password" placeholder="비밀번호 입력" required></div><button class="gold-btn w-full rounded-lg py-3 mt-2">관리자 로그인</button><p id="loginError" class="text-sm text-red-300 hidden">아이디 또는 비밀번호를 확인해 주세요.</p></form>
+  <form id="loginForm" class="space-y-4"><div><label class="label">조직원 / 관리자 아이디</label><input class="field" id="loginUser" autocomplete="username" placeholder="아이디 입력" required></div><div><label class="label">비밀번호</label><input class="field" id="loginPass" type="password" autocomplete="current-password" placeholder="비밀번호 입력" required></div><button class="gold-btn w-full rounded-lg py-3 mt-2">로그인</button><p id="loginError" class="text-sm text-red-300 hidden">아이디 또는 비밀번호를 확인해 주세요.</p></form>
 
  </div>
 </div>
@@ -29,8 +29,9 @@
    <button class="nav-btn" data-page="items"><span>▧</span> 품목 관리</button>
    <button class="nav-btn" data-page="transactions"><span>◉</span> 거래내역 조회</button>
    <button class="nav-btn" data-page="loans"><span>↗</span> 대출 관리</button>
+   <button class="nav-btn admin-only" data-page="viewers"><span>♙</span> 조회 계정 관리</button>
   </nav>
-  <div class="rounded-xl p-3 mt-4" style="background:#18151a;border:1px solid #332b30"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center gold" style="background:#332817">♛</div><div class="min-w-0"><p class="text-sm font-bold truncate" id="sideName">조직 두목</p><p class="text-xs gold">최고 관리자</p></div></div></div>
+  <div class="rounded-xl p-3 mt-4" style="background:#18151a;border:1px solid #332b30"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center gold" style="background:#332817">♛</div><div class="min-w-0"><p class="text-sm font-bold truncate" id="sideName">조직 두목</p><p class="text-xs gold" id="sideRole">최고 관리자</p></div></div></div>
  </aside>
  <div class="main-area min-h-screen">
   <header class="h-[72px] sticky top-0 z-20 flex items-center justify-between px-5 sm:px-8" style="background:#121216ee;backdrop-filter:blur(14px);border-bottom:1px solid #302e35"><div class="flex items-center gap-3"><button id="menuToggle" class="mobile-top outline-btn rounded-lg px-3 py-2">☰</button><div><div id="pageTitle" class="font-bold">대시보드</div><div class="muted text-xs mt-1 hidden sm:block">GOLD MOON • 조직 운영 시스템</div></div></div><div class="flex gap-2"><button id="changePasswordBtn" class="outline-btn rounded-lg px-3 py-2 text-sm hidden sm:block">비밀번호 변경</button><button id="logoutBtn" class="outline-btn rounded-lg px-3 py-2 text-sm">로그아웃</button><button id="quickLedger" class="gold-btn rounded-lg px-3 py-2 text-sm">＋ 장부 작성</button></div></header>
@@ -40,16 +41,16 @@
 <div id="modalRoot"></div><div id="toastRoot"></div>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-let data={admin:{username:'',name:'조직 두목'},members:[],ranks:[],ledger:[],items:[],loans:[]}, currentPage='dashboard';
+let data={admin:{username:'',name:'조직 두목'},members:[],ranks:[],ledger:[],items:[],loans:[]}, currentPage='dashboard', currentRole='admin';
 let saveQueue=Promise.resolve();
 async function api(url, options={}){const response=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'요청을 처리하지 못했습니다.');return payload}
 async function load(){data=await api('/api/data');}
-function save(){const snapshot={members:data.members,ranks:data.ranks,ledger:data.ledger,items:data.items,loans:data.loans};saveQueue=saveQueue.then(()=>api('/api/data',{method:'PUT',body:JSON.stringify(snapshot)})).catch(e=>toast(e.message||'저장에 실패했습니다.'));return saveQueue}
+function save(){if(currentRole!=='admin'){toast('조회 전용 계정은 수정할 수 없습니다.');return Promise.resolve()}const snapshot={members:data.members,ranks:data.ranks,ledger:data.ledger,items:data.items,loans:data.loans};saveQueue=saveQueue.then(()=>api('/api/data',{method:'PUT',body:JSON.stringify(snapshot)})).catch(e=>toast(e.message||'저장에 실패했습니다.'));return saveQueue}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function won(n){return Number(n||0).toLocaleString('ko-KR')+'원'}
 function dateNow(){return new Date().toISOString().slice(0,10)}
 function toast(msg){$('#toastRoot').innerHTML=`<div class="toast text-sm">${esc(msg)}</div>`;setTimeout(()=>$('#toastRoot').innerHTML='',2600)}
-async function showApp(){try{await load();$('#loginScreen').classList.add('hidden');$('#app').classList.remove('hidden');$('#sideName').textContent=data.admin.name||'조직 두목';render()}catch(e){showLogin();toast(e.message||'데이터를 불러오지 못했습니다.')}}
+async function showApp(){try{const me=await api('/api/me');currentRole=me.role||'admin';await load();$('#loginScreen').classList.add('hidden');$('#app').classList.remove('hidden');$('#sideName').textContent=me.displayName||data.admin.name||'조직 두목';const roleLabel=$('#sideRole');if(roleLabel)roleLabel.textContent=currentRole==='admin'?'최고 관리자':'조회 전용 계정';render()}catch(e){showLogin();toast(e.message||'데이터를 불러오지 못했습니다.')}}
 function showLogin(){ $('#app').classList.add('hidden');$('#loginScreen').classList.remove('hidden');$('#loginPass').value=''; }
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;try{await api('/api/login',{method:'POST',body:JSON.stringify({username:$('#loginUser').value.trim(),password:$('#loginPass').value})});$('#loginError').classList.add('hidden');await showApp()}catch(err){$('#loginError').textContent=err.message||'아이디 또는 비밀번호를 확인해 주세요.';$('#loginError').classList.remove('hidden')}finally{btn.disabled=false}});
 $('#logoutBtn').onclick=async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}finally{showLogin()}};
@@ -59,6 +60,8 @@ function go(page){currentPage=page;$('#sidebar').classList.remove('open');render
 $('#quickLedger').onclick=()=>{go('ledger');setTimeout(()=>openLedgerModal(),0)};
 $('#changePasswordBtn').onclick=()=>openModal('비밀번호 변경',`<form id="passwordForm" class="space-y-3"><div><label class="label">현재 비밀번호</label><input class="field" name="old" type="password" required></div><div><label class="label">새 비밀번호 (12자 이상)</label><input class="field" name="newp" type="password" minlength="12" required></div><div><label class="label">새 비밀번호 확인</label><input class="field" name="confirm" type="password" minlength="12" required></div><button class="gold-btn rounded-lg px-4 py-2 w-full">변경 저장</button></form>`);
 function render(){let titles={dashboard:'대시보드',members:'조직원 관리',ranks:'직급표',ledger:'장부 관리',items:'품목 관리',transactions:'거래내역 조회',loans:'대출 관리'};$('#pageTitle').textContent=titles[currentPage];$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.page===currentPage));const views={dashboard:dashboardView,members:membersView,ranks:ranksView,ledger:ledgerView,items:itemsView,transactions:transactionsView,loans:loansView};$('#content').innerHTML=views[currentPage]();bindPage()}
+function viewersView(){return `<div class="panel p-5"><h2 class="text-xl font-extrabold mb-2">조회 계정 관리</h2><p class="muted text-sm mb-5">조회 전용 계정은 데이터를 확인할 수 있지만 수정할 수 없습니다.</p><form id="viewerCreateForm" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5"><div><label class="label">아이디 (3~50자)</label><input class="field" name="username" minlength="3" maxlength="50" pattern="[A-Za-z0-9_-]+" required></div><div><label class="label">표시 이름</label><input class="field" name="displayName" maxlength="50" required></div><div><label class="label">비밀번호 (12자 이상)</label><input class="field" name="password" type="password" minlength="12" required></div><div class="flex items-end"><button class="gold-btn rounded-lg px-4 py-2 w-full">조회 계정 생성</button></div></form><div id="viewerList" class="muted text-sm">계정 목록을 불러오는 중...</div></div>`} 
+async function loadViewerList(){const root=$('#viewerList');if(!root)return;try{const r=await api('/api/viewer-accounts');const accounts=r.accounts||r;root.innerHTML=Array.isArray(accounts)&&accounts.length?tableHTML(['아이디','표시 이름','관리'],accounts.map(a=>[esc(a.username),esc(a.displayName||a.display_name||''),`<button class="outline-btn danger rounded px-2 py-1 text-xs" data-delete-viewer="${esc(a.id)}">삭제</button>`])):empty('등록된 조회 계정이 없습니다.')}catch(e){root.textContent=e.message||'계정 목록을 불러오지 못했습니다.'}}
 function sectionHead(title,sub,button=''){return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5"><div><h2 class="text-xl font-extrabold">${title}</h2><p class="muted text-sm mt-1">${sub}</p></div>${button}</div>`}
 function empty(msg){return `<div class="text-center muted py-12">${msg}</div>`}
 function dashboardView(){let income=data.ledger.filter(x=>x.type==='수입').reduce((a,x)=>a+Number(x.amount),0),expense=data.ledger.filter(x=>x.type==='지출').reduce((a,x)=>a+Number(x.amount),0),recent=[...data.ledger].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
@@ -101,7 +104,7 @@ $$('[data-delete-loan]').forEach(b=>b.onclick=()=>{if(confirm('대출 내역을 
 function bindGlobal(){
 $('#modalRoot').addEventListener('submit',async e=>{if(e.target.id==='passwordForm'){e.preventDefault();let f=new FormData(e.target),old=f.get('old'),n=f.get('newp'),c=f.get('confirm');if(n!==c){toast('새 비밀번호가 일치하지 않습니다.');return}if(n.length<12){toast('새 비밀번호는 12자 이상이어야 합니다.');return}try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword:old,newPassword:n})});closeModal();toast('비밀번호를 변경했습니다.')}catch(err){toast(err.message||'비밀번호를 변경하지 못했습니다.')} }})
 }
-bindGlobal();api('/api/me').then(async r=>{if(r.authenticated)await showApp()}).catch(()=>{});
+$('#content').addEventListener('submit',async e=>{if(e.target.id==='viewerCreateForm'){e.preventDefault();const f=new FormData(e.target);try{await api('/api/viewer-accounts',{method:'POST',body:JSON.stringify({username:f.get('username').trim(),displayName:f.get('displayName').trim(),password:f.get('password')})});e.target.reset();toast('조회 계정을 생성했습니다.');loadViewerList()}catch(err){toast(err.message||'계정 생성에 실패했습니다.')}}});$('#content').addEventListener('click',async e=>{const b=e.target.closest('[data-delete-viewer]');if(!b)return;if(!confirm('이 조회 계정을 삭제할까요?'))return;try{await api('/api/viewer-accounts/'+encodeURIComponent(b.dataset.deleteViewer),{method:'DELETE'});toast('조회 계정을 삭제했습니다.');loadViewerList()}catch(err){toast(err.message||'계정 삭제에 실패했습니다.')}});bindGlobal();api('/api/me').then(async r=>{if(r.authenticated)await showApp()}).catch(()=>{});
 </script>
 </body>
 </html>
