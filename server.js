@@ -82,9 +82,10 @@ const asyncRoute = (fn) => (req, res, next) =>
 const stateSchema = z.object({
   members: z.array(z.record(z.string(), z.any())).max(5000),
   ranks: z.array(z.string().min(1).max(30)).min(1).max(100),
-  ledger: z.array(z.record(z.string(), z.any())).max(20000),
-  items: z.array(z.record(z.string(), z.any())).max(10000),
-  loans: z.array(z.record(z.string(), z.any())).max(10000)
+ledger: z.array(z.record(z.any())).max(20000),
+items: z.array(z.record(z.any())).max(10000),
+categories: z.array(z.string().min(1).max(40)).max(500).optional(),
+loans: z.array(z.record(z.any())).max(10000),
 }).strict();
 
 // 로그인한 사용자의 실제 DB 계정과 역할을 확인
