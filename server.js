@@ -602,3 +602,30 @@ initDb()
     console.error('Database initialization failed:', err);
     process.exit(1);
   });
+// 초기 조회 계정 자동 생성
+const viewerUsername = process.env.VIEWER_USERNAME;
+const viewerPassword = process.env.VIEWER_PASSWORD;
+const viewerDisplayName =
+  process.env.VIEWER_DISPLAY_NAME || '골드문 조회자';
+
+if (viewerUsername && viewerPassword) {
+  if (viewerPassword.length < 12) {
+    throw new Error(
+      'VIEWER_PASSWORD는 12자 이상으로 설정하세요.'
+    );
+  }
+
+  const viewerHash = await bcrypt.hash(viewerPassword, 12);
+
+  await pool.query(
+    `
+      INSERT INTO viewer_accounts
+        (username, password_hash, display_name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (username) DO NOTHING
+    `,
+    [viewerUsername, viewerHash, viewerDisplayName]
+  );
+
+  console.log(`초기 조회 계정 확인 완료: ${viewerUsername}`);
+}
