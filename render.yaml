@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: goldmoon-fivem
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: goldmoon-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_DISPLAY_NAME
+        value: 조직 두목
+
+databases:
+  - name: goldmoon-db
+    plan: basic-256mb
+    databaseName: goldmoon
+    user: goldmoon
