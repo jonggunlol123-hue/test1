@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const required = ['DATABASE_URL', 'SESSION_SECRET'];
+
 for (const key of required) {
   if (!process.env[key]) {
     throw new Error(`${key} 환경변수가 필요합니다.`);
@@ -22,7 +23,9 @@ if (
   process.env.NODE_ENV === 'production' &&
   process.env.SESSION_SECRET.length < 32
 ) {
-  throw new Error('운영 환경의 SESSION_SECRET은 32자 이상이어야 합니다.');
+  throw new Error(
+    '운영 환경의 SESSION_SECRET은 32자 이상이어야 합니다.'
+  );
 }
 
 const pool = new Pool({
@@ -82,13 +85,13 @@ const asyncRoute = (fn) => (req, res, next) =>
 const stateSchema = z.object({
   members: z.array(z.record(z.string(), z.any())).max(5000),
   ranks: z.array(z.string().min(1).max(30)).min(1).max(100),
-ledger: z.array(z.record(z.any())).max(20000),
-items: z.array(z.record(z.any())).max(10000),
-categories: z.array(z.string().min(1).max(40)).max(500).optional(),
-loans: z.array(z.record(z.any())).max(10000),
+  ledger: z.array(z.record(z.string(), z.any())).max(20000),
+  items: z.array(z.record(z.string(), z.any())).max(10000),
+  categories: z.array(z.string().min(1).max(40)).max(500).optional(),
+  loans: z.array(z.record(z.string(), z.any())).max(10000)
 }).strict();
 
-// 로그인한 사용자의 실제 DB 계정과 역할을 확인
+// 로그인한 사용자의 실제 DB 계정과 역할 확인
 const isAuthenticated = asyncRoute(async (req, res, next) => {
   if (req.session.adminId) {
     const result = await pool.query(
@@ -115,7 +118,6 @@ const isAuthenticated = asyncRoute(async (req, res, next) => {
       role: 'admin'
     };
 
-    // 기존 관리자 비밀번호 변경 API와의 호환
     req.admin = req.user;
 
     return next();
@@ -154,7 +156,7 @@ const isAuthenticated = asyncRoute(async (req, res, next) => {
   });
 });
 
-// 수정·삭제·계정 관리 등의 작업은 관리자만 가능
+// 수정·삭제 등의 작업은 관리자만 가능
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') {
     return res.status(403).json({
@@ -165,7 +167,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// DB 초기화
+// DB 초기화 및 최초 계정 생성
 async function initDb() {
   const schema = fs.readFileSync(
     path.join(__dirname, 'schema.sql'),
@@ -198,28 +200,37 @@ async function initDb() {
     )
   `);
 
+  // 기본 조직 데이터
   await pool.query(`
     INSERT INTO app_state(id, payload)
     VALUES (1, $1::jsonb)
     ON CONFLICT (id) DO NOTHING
   `, [
-JSON.stringify({
-  members: [],
-  ranks: ['조직 두목', '부두목', '간부', '정회원', '신입'],
-  ledger: [],
-  items: [],
-  categories: ['일반'],
-  loans: []
-}),
+    JSON.stringify({
+      members: [],
+      ranks: [
+        '조직 두목',
+        '부두목',
+        '간부',
+        '정회원',
+        '신입'
+      ],
+      ledger: [],
+      items: [],
+      categories: ['일반'],
+      loans: []
+    })
   ]);
 
-  // 최초 관리자 계정 생성. 기존 계정의 비밀번호는 덮어쓰지 않음.
+  // 최초 관리자 계정 생성
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
 
   if (username && password) {
     if (password.length < 12) {
-      throw new Error('ADMIN_PASSWORD는 12자 이상으로 설정하세요.');
+      throw new Error(
+        'ADMIN_PASSWORD는 12자 이상으로 설정하세요.'
+      );
     }
 
     const hash = await bcrypt.hash(password, 12);
@@ -235,6 +246,67 @@ JSON.stringify({
     ]);
 
     console.log(`초기 관리자 계정 확인 완료: ${username}`);
+  }
+
+  // 최초 조회 전용 계정 자동 생성
+  const viewerUsername = process.env.VIEWER_USERNAME;
+  const viewerPassword = process.env.VIEWER_PASSWORD;
+  const viewerDisplayName =
+    process.env.VIEWER_DISPLAY_NAME || '골드문 조회자';
+
+  if (viewerUsername && viewerPassword) {
+    if (!/^[a-zA-Z0-9_-]{3,50}$/.test(viewerUsername)) {
+      throw new Error(
+        'VIEWER_USERNAME은 영문, 숫자, 밑줄, 하이픈으로 3~50자여야 합니다.'
+      );
+    }
+
+    if (viewerPassword.length < 12 || viewerPassword.length > 72) {
+      throw new Error(
+        'VIEWER_PASSWORD는 12~72자여야 합니다.'
+      );
+    }
+
+    if (viewerDisplayName.trim().length < 1 ||
+        viewerDisplayName.length > 100) {
+      throw new Error(
+        'VIEWER_DISPLAY_NAME은 1~100자여야 합니다.'
+      );
+    }
+
+    // 관리자 계정과 조회 계정의 아이디 중복 방지
+    const adminExists = await pool.query(
+      'SELECT 1 FROM admins WHERE username = $1',
+      [viewerUsername]
+    );
+
+    if (adminExists.rowCount) {
+      throw new Error(
+        '조회 계정 아이디가 기존 관리자 계정과 같습니다. VIEWER_USERNAME을 변경하세요.'
+      );
+    }
+
+    const viewerHash = await bcrypt.hash(viewerPassword, 12);
+
+    const result = await pool.query(`
+      INSERT INTO viewer_accounts
+        (username, password_hash, display_name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT(username) DO NOTHING
+      RETURNING id
+    `, [
+      viewerUsername,
+      viewerHash,
+      viewerDisplayName.trim()
+    ]);
+
+    if (result.rowCount) {
+      console.log(`조회 계정 생성 완료: ${viewerUsername}`);
+    } else {
+      console.log(
+        `조회 계정이 이미 존재합니다: ${viewerUsername}`
+      );
+    }
   }
 }
 
@@ -270,7 +342,10 @@ app.post('/api/login', loginLimiter, asyncRoute(async (req, res) => {
   let role;
 
   if (admins.rowCount) {
-    if (!(await bcrypt.compare(password, admins.rows[0].password_hash))) {
+    if (!(await bcrypt.compare(
+      password,
+      admins.rows[0].password_hash
+    ))) {
       return res.status(401).json({
         error: '아이디 또는 비밀번호를 확인해 주세요.'
       });
@@ -288,7 +363,10 @@ app.post('/api/login', loginLimiter, asyncRoute(async (req, res) => {
 
     if (
       !viewers.rowCount ||
-      !(await bcrypt.compare(password, viewers.rows[0].password_hash))
+      !(await bcrypt.compare(
+        password,
+        viewers.rows[0].password_hash
+      ))
     ) {
       return res.status(401).json({
         error: '아이디 또는 비밀번호를 확인해 주세요.'
@@ -299,9 +377,11 @@ app.post('/api/login', loginLimiter, asyncRoute(async (req, res) => {
     role = 'viewer';
   }
 
-  // 로그인할 때 세션 ID 재발급
+  // 로그인 시 세션 ID 재발급
   await new Promise((resolve, reject) => {
-    req.session.regenerate(err => err ? reject(err) : resolve());
+    req.session.regenerate(err =>
+      err ? reject(err) : resolve()
+    );
   });
 
   if (role === 'admin') {
@@ -311,7 +391,9 @@ app.post('/api/login', loginLimiter, asyncRoute(async (req, res) => {
   }
 
   await new Promise((resolve, reject) => {
-    req.session.save(err => err ? reject(err) : resolve());
+    req.session.save(err =>
+      err ? reject(err) : resolve()
+    );
   });
 
   res.json({ ok: true, role });
@@ -327,7 +409,8 @@ app.get('/api/me', asyncRoute(async (req, res) => {
 
     result = await pool.query(
       `SELECT username, display_name
-       FROM admins WHERE id = $1`,
+       FROM admins
+       WHERE id = $1`,
       [req.session.adminId]
     );
   } else if (req.session.viewerId) {
@@ -335,7 +418,8 @@ app.get('/api/me', asyncRoute(async (req, res) => {
 
     result = await pool.query(
       `SELECT username, display_name
-       FROM viewer_accounts WHERE id = $1`,
+       FROM viewer_accounts
+       WHERE id = $1`,
       [req.session.viewerId]
     );
   } else {
@@ -379,7 +463,7 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// 데이터 조회: 관리자와 조회 전용 계정 모두 가능
+// 데이터 조회: 관리자와 조회 계정 모두 가능
 app.get('/api/data', isAuthenticated, asyncRoute(async (req, res) => {
   const result = await pool.query(
     'SELECT payload FROM app_state WHERE id = 1'
@@ -467,7 +551,7 @@ app.post(
   })
 );
 
-// 조회 전용 계정 목록: 관리자만
+// 조회 계정 목록: 관리자만
 app.get(
   '/api/viewer-accounts',
   isAuthenticated,
@@ -483,7 +567,7 @@ app.get(
   })
 );
 
-// 조회 전용 계정 생성: 관리자만
+// 조회 계정 생성: 관리자만
 app.post(
   '/api/viewer-accounts',
   isAuthenticated,
@@ -499,13 +583,12 @@ app.post(
 
     if (!parsed.success) {
       return res.status(400).json({
-        error: '아이디는 영문·숫자·_-로 3~50자, 비밀번호는 12자 이상이어야 합니다.'
+        error: '아이디는 영문·숫자·_-로 3~50자, 비밀번호는 12~72자여야 합니다.'
       });
     }
 
     const { username, password, displayName } = parsed.data;
 
-    // 관리자 계정과 조회 계정의 아이디 중복 방지
     const adminExists = await pool.query(
       'SELECT 1 FROM admins WHERE username = $1',
       [username]
@@ -541,7 +624,7 @@ app.post(
   })
 );
 
-// 조회 전용 계정 삭제: 관리자만
+// 조회 계정 삭제: 관리자만
 app.delete(
   '/api/viewer-accounts/:id',
   isAuthenticated,
@@ -572,6 +655,7 @@ app.delete(
   })
 );
 
+// 정적 파일 제공
 app.use(express.static(
   path.join(__dirname, 'public'),
   {
@@ -580,6 +664,7 @@ app.use(express.static(
   }
 ));
 
+// 오류 처리
 app.use((err, req, res, _next) => {
   console.error(err);
 
@@ -602,30 +687,3 @@ initDb()
     console.error('Database initialization failed:', err);
     process.exit(1);
   });
-// 초기 조회 계정 자동 생성
-const viewerUsername = process.env.VIEWER_USERNAME;
-const viewerPassword = process.env.VIEWER_PASSWORD;
-const viewerDisplayName =
-  process.env.VIEWER_DISPLAY_NAME || '골드문 조회자';
-
-if (viewerUsername && viewerPassword) {
-  if (viewerPassword.length < 12) {
-    throw new Error(
-      'VIEWER_PASSWORD는 12자 이상으로 설정하세요.'
-    );
-  }
-
-  const viewerHash = await bcrypt.hash(viewerPassword, 12);
-
-  await pool.query(
-    `
-      INSERT INTO viewer_accounts
-        (username, password_hash, display_name)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (username) DO NOTHING
-    `,
-    [viewerUsername, viewerHash, viewerDisplayName]
-  );
-
-  console.log(`초기 조회 계정 확인 완료: ${viewerUsername}`);
-}
