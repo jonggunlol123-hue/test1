@@ -203,13 +203,14 @@ async function initDb() {
     VALUES (1, $1::jsonb)
     ON CONFLICT (id) DO NOTHING
   `, [
-    JSON.stringify({
-      members: [],
-      ranks: ['조직 두목', '부두목', '간부', '정회원', '신입'],
-      ledger: [],
-      items: [],
-      loans: []
-    })
+JSON.stringify({
+  members: [],
+  ranks: ['조직 두목', '부두목', '간부', '정회원', '신입'],
+  ledger: [],
+  items: [],
+  categories: ['일반'],
+  loans: []
+}),
   ]);
 
   // 최초 관리자 계정 생성. 기존 계정의 비밀번호는 덮어쓰지 않음.
